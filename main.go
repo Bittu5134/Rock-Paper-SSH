@@ -34,7 +34,6 @@ var helpStyle = lipgloss.NewStyle().
 var (
 	timerMu  sync.Mutex
 	roundEnd time.Time
-	roundNum int // monotonically increasing round counter
 )
 
 func startRound(d time.Duration) {
@@ -55,20 +54,16 @@ func roundLoop() {
 		time.Sleep(200 * time.Millisecond)
 		if timeLeft() <= 0 {
 
-			// Bump the round number under timerMu so every user sees the
-			// same, consistent value.
-			timerMu.Lock()
-			roundNum++
-			n := roundNum
-			timerMu.Unlock()
+			picks, dist, total := snapshotChoices()
 
-			// The system's winning choice — random, different every round.
-			winner := choices[rand.IntN(len(choices))]
+			// The system's winning choice — random index, different every round.
+			winner := rand.IntN(len(choices))
 
 			broadcast(roundEndMsg{
-				round:  n,      // arbitrary data: which round just ended
-				winner: winner, // arbitrary data: the system's winning glyph
-				picks:  snapshotChoices(),
+				winner: winner, // arbitrary data: the system's winning index
+				picks:  picks,  // username -> choice index
+				dist:   dist,   // % of users per choice, out of 100
+				total:  total,  // how many users picked
 			})
 
 			startRound(roundDuration)
@@ -81,28 +76,39 @@ func roundLoop() {
 
 var (
 	choiceMu    sync.Mutex
-	userChoices = map[string]string{} // username -> locked-in glyph
+	userChoices = map[string]int{} // username -> choice index (0..2)
 )
 
-func lockChoice(user, glyph string) {
+func lockChoice(user string, choiceIdx int) {
 	choiceMu.Lock()
-	userChoices[user] = glyph
+	userChoices[user] = choiceIdx
 	choiceMu.Unlock()
 }
 
-func snapshotChoices() map[string]string {
+func snapshotChoices() (map[string]int, [3]float64, int) {
 	choiceMu.Lock()
-	snapshot := make(map[string]string, len(userChoices))
-	for user, glyph := range userChoices {
-		snapshot[user] = glyph
+	snapshot := make(map[string]int, len(userChoices))
+	var counts [3]int
+	for user, idx := range userChoices {
+		snapshot[user] = idx
+		counts[idx]++
 	}
 	choiceMu.Unlock()
-	return snapshot
+
+	// what fraction of users picked each choice, out of 100%
+	var dist [3]float64
+	total := len(snapshot)
+	if total > 0 {
+		for i := range counts {
+			dist[i] = float64(counts[i]) / float64(total) * 100
+		}
+	}
+	return snapshot, dist, total
 }
 
 func resetChoices() {
 	choiceMu.Lock()
-	userChoices = map[string]string{}
+	userChoices = map[string]int{}
 	choiceMu.Unlock()
 }
 
@@ -129,9 +135,10 @@ func broadcast(m tea.Msg) {
 
 // roundEndMsg carries the round's outcome — same data delivered to everyone.
 type roundEndMsg struct {
-	round  int               // which round just ended
-	winner string            // the system's winning glyph for this round
-	picks  map[string]string // username -> glyph
+	winner int            // the system's winning choice index
+	picks  map[string]int // username -> choice index
+	dist   [3]float64     // % of users per choice, out of 100
+	total  int            // how many users picked
 }
 
 type tickMsg time.Time
@@ -143,11 +150,12 @@ func tickEvery() tea.Cmd {
 }
 
 type model struct {
-	user    string
-	choice  int
-	round   int
-	winner  string
-	picks   map[string]string
+	user   string
+	choice int
+	winner int
+	picks  map[string]int
+	dist   [3]float64
+	total  int
 }
 
 func (m model) Init() tea.Cmd { return tickEvery() }
@@ -155,9 +163,10 @@ func (m model) Init() tea.Cmd { return tickEvery() }
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case roundEndMsg: // all users receive the same round outcome at the same time
-		m.round = msg.round
 		m.winner = msg.winner
 		m.picks = msg.picks
+		m.dist = msg.dist
+		m.total = msg.total
 		return m, nil
 
 	case tickMsg:
@@ -177,20 +186,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	s := fmt.Sprintf("⏳ %ds left in round\n\n", int(timeLeft().Seconds())+1)
-	s += fmt.Sprintf("Your current choice is, %s\n", choices[m.choice])
-	lockChoice(m.user, choices[m.choice])
+	s += fmt.Sprintf("Your current choice is, %s (index %d)\n", choices[m.choice], m.choice)
+	lockChoice(m.user, m.choice)
 	if m.picks != nil {
-		s += fmt.Sprintf("\nROUND %d ENDED — system picked %s as the winner\n", m.round, m.winner)
+		s += fmt.Sprintf("\nROUND ENDED — system picked index %d (%s) as the winner\n", m.winner, choices[m.winner])
+
+		s += fmt.Sprintf("\nWhat users picked (%d pickers):\n", m.total)
+		for i, pct := range m.dist {
+			s += fmt.Sprintf("  %s : %5.1f%%\n", choices[i], pct)
+		}
+
 		s += "\nThis round's picks:\n"
-		for user, glyph := range m.picks {
+		for user, idx := range m.picks {
 			verdict := ""
-			if glyph == m.winner {
+			if idx == m.winner {
 				verdict = " 🎉"
 			}
-			s += fmt.Sprintf("  %s chose %s%s\n", user, glyph, verdict)
+			s += fmt.Sprintf("  %s chose index %d (%s)%s\n", user, idx, choices[idx], verdict)
 		}
 	}
-	return s + helpStyle.Render("tab to choose · enter to lock in · ctrl+c to quit") + "\n"
+	return s + helpStyle.Render("tab to choose · ctrl+c to quit") + "\n"
 }
 
 // --- ssh wiring ---------------------------------------------------------------
