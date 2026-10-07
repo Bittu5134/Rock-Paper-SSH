@@ -21,7 +21,7 @@ import (
 
 const (
 	port          = "2222"
-	roundDuration = 5 * time.Second
+	roundDuration = 10 * time.Second
 )
 
 var names = [3]string{"Stone", "Paper", "Scissors"}
