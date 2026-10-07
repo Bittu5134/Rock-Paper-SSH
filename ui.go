@@ -26,7 +26,7 @@ const (
 
 const (
 	minTermW = 84
-	minTermH = 26
+	minTermH = 28
 
 	frameMargin    = 4
 	maxContentW    = 96
@@ -176,16 +176,19 @@ func renderRoundSummary(r *lipgloss.Renderer, st *uiStyles, msg *roundEndMsg, me
 		return lipgloss.JoinVertical(lipgloss.Left, head, st.label.Render("waiting for first round to finish..."))
 	}
 	serverMove := r.NewStyle().Bold(true).Foreground(choiceColor(msg.serverChoice)).Render(names[msg.serverChoice])
-	lines := []string{head, fmt.Sprintf("%s  %s", st.label.Render("SERVER"), serverMove)}
+	headerLine := fmt.Sprintf("%s  %s", st.label.Render("SERVER"), serverMove)
 
 	results := msg.sortedResults()
-	maxShown := 2
+	maxRows := 3
+	maxSlots := maxRows * 2
 	shown := results
-	if len(results) > maxShown {
-		shown = results[:maxShown]
+	hidden := 0
+	if len(results) > maxSlots {
+		shown = results[:maxSlots]
+		hidden = len(results) - maxSlots
 	}
 
-	for _, p := range shown {
+	formatEntry := func(p pickResult) string {
 		mark, markStyle := "· draw", st.label
 		name := p.user
 		if p.sessionID == meSessionID {
@@ -203,10 +206,23 @@ func renderRoundSummary(r *lipgloss.Renderer, st *uiStyles, msg *roundEndMsg, me
 		} else if p.delta < 0 {
 			delta = st.lose.Render(fmt.Sprintf("%d", p.delta))
 		}
-		lines = append(lines, fmt.Sprintf("  %s %-8s %s %s", name, names[p.idx], markStyle.Render(mark), delta))
+		return fmt.Sprintf("%-16s %-8s %s %s", name, names[p.idx], markStyle.Render(mark), delta)
 	}
-	if len(results) > maxShown {
-		lines = append(lines, st.label.Render(fmt.Sprintf("    +%d more players", len(results)-maxShown)))
+
+	lines := []string{head, headerLine}
+
+	for i := 0; i < len(shown); i += 2 {
+		c1 := formatEntry(shown[i])
+		if i+1 < len(shown) {
+			c2 := formatEntry(shown[i+1])
+			lines = append(lines, fmt.Sprintf("  %-38s  %s", c1, c2))
+		} else {
+			lines = append(lines, fmt.Sprintf("  %s", c1))
+		}
+	}
+
+	if hidden > 0 {
+		lines = append(lines, st.label.Render(fmt.Sprintf("    +%d more players", hidden)))
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
