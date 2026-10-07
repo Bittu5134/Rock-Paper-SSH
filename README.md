@@ -33,10 +33,11 @@ ssh rps.bittu.dev -p 2222
 - `ctrl+c` quit the game.
 
 
-## 🚀 Run your own
+## Run Locally
 
-```bash
-go run .            # starts on localhost:2222
+clone this git repository locally and run these commands.
+```bass
+go run .
 ssh localhost -p 2222
 ```
 
@@ -44,13 +45,9 @@ ssh localhost -p 2222
 
 <br>
 
-## 🛠️ Built with
+## Built Using
 
 [Wish](https://github.com/charmbracelet/wish) · [Bubble Tea](https://github.com/charmbracelet/bubbletea) · [Lip Gloss](https://github.com/charmbracelet/lipgloss)
-
-<br>
-
-<sub>Released under the MIT License.</sub>
 
 <br>
 
