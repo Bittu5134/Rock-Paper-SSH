@@ -50,4 +50,8 @@ ssh localhost -p 2222
 
 <br>
 
+<sub>Released under the MIT License.</sub>
+
+<br>
+
 </div>

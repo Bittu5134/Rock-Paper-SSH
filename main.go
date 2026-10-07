@@ -44,13 +44,19 @@ func timeLeft() time.Duration {
 	return time.Until(roundEnd)
 }
 
+func currentServerChoice() int {
+	choiceMu.Lock()
+	defer choiceMu.Unlock()
+	return serverChoice
+}
+
 func roundLoop() {
 	for {
 		time.Sleep(200 * time.Millisecond)
 		if timeLeft() <= 0 {
 			picks, dist, total := snapshotChoices()
 
-			oldServerChoice := serverChoice
+			oldServerChoice := currentServerChoice()
 			results := scoreRound(oldServerChoice, picks)
 
 			startRound(roundDuration)
