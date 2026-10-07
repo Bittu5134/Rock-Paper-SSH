@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"sync"
 	"time"
@@ -18,10 +19,11 @@ import (
 
 const (
 	port          = "2222"
-	roundDuration = 30 * time.Second
+	roundDuration = 3 * time.Second
 )
 
 var choices = [3]string{"🪨", "📄", "✂️ "}
+var win_choice = rand.IntN(len(choices))
 
 var helpStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("240")).
@@ -32,6 +34,7 @@ var helpStyle = lipgloss.NewStyle().
 var (
 	timerMu  sync.Mutex
 	roundEnd time.Time
+	roundNum int // monotonically increasing round counter
 )
 
 func startRound(d time.Duration) {
@@ -51,10 +54,56 @@ func roundLoop() {
 	for {
 		time.Sleep(200 * time.Millisecond)
 		if timeLeft() <= 0 {
-			broadcast(roundEndMsg{})
+
+			// Bump the round number under timerMu so every user sees the
+			// same, consistent value.
+			timerMu.Lock()
+			roundNum++
+			n := roundNum
+			timerMu.Unlock()
+
+			// The system's winning choice — random, different every round.
+			winner := choices[rand.IntN(len(choices))]
+
+			broadcast(roundEndMsg{
+				round:  n,      // arbitrary data: which round just ended
+				winner: winner, // arbitrary data: the system's winning glyph
+				picks:  snapshotChoices(),
+			})
+
 			startRound(roundDuration)
+			resetChoices()
 		}
 	}
+}
+
+// --- global choice registry -------------------------------------------------
+
+var (
+	choiceMu    sync.Mutex
+	userChoices = map[string]string{} // username -> locked-in glyph
+)
+
+func lockChoice(user, glyph string) {
+	choiceMu.Lock()
+	userChoices[user] = glyph
+	choiceMu.Unlock()
+}
+
+func snapshotChoices() map[string]string {
+	choiceMu.Lock()
+	snapshot := make(map[string]string, len(userChoices))
+	for user, glyph := range userChoices {
+		snapshot[user] = glyph
+	}
+	choiceMu.Unlock()
+	return snapshot
+}
+
+func resetChoices() {
+	choiceMu.Lock()
+	userChoices = map[string]string{}
+	choiceMu.Unlock()
 }
 
 // --- broadcast fan-out ------------------------------------------------------
@@ -78,7 +127,12 @@ func broadcast(m tea.Msg) {
 
 // --- bubbletea UI -----------------------------------------------------------
 
-type roundEndMsg struct{}
+// roundEndMsg carries the round's outcome — same data delivered to everyone.
+type roundEndMsg struct {
+	round  int               // which round just ended
+	winner string            // the system's winning glyph for this round
+	picks  map[string]string // username -> glyph
+}
 
 type tickMsg time.Time
 
@@ -89,15 +143,21 @@ func tickEvery() tea.Cmd {
 }
 
 type model struct {
-	choice int
+	user    string
+	choice  int
+	round   int
+	winner  string
+	picks   map[string]string
 }
 
 func (m model) Init() tea.Cmd { return tickEvery() }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case roundEndMsg:
-		// all users reach here at the same time — hook in round scoring etc.
+	case roundEndMsg: // all users receive the same round outcome at the same time
+		m.round = msg.round
+		m.winner = msg.winner
+		m.picks = msg.picks
 		return m, nil
 
 	case tickMsg:
@@ -118,14 +178,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	s := fmt.Sprintf("⏳ %ds left in round\n\n", int(timeLeft().Seconds())+1)
 	s += fmt.Sprintf("Your current choice is, %s\n", choices[m.choice])
-	return s + helpStyle.Render("tab to choose · ctrl+c to quit") + "\n"
+	lockChoice(m.user, choices[m.choice])
+	if m.picks != nil {
+		s += fmt.Sprintf("\nROUND %d ENDED — system picked %s as the winner\n", m.round, m.winner)
+		s += "\nThis round's picks:\n"
+		for user, glyph := range m.picks {
+			verdict := ""
+			if glyph == m.winner {
+				verdict = " 🎉"
+			}
+			s += fmt.Sprintf("  %s chose %s%s\n", user, glyph, verdict)
+		}
+	}
+	return s + helpStyle.Render("tab to choose · enter to lock in · ctrl+c to quit") + "\n"
 }
 
 // --- ssh wiring ---------------------------------------------------------------
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
-	return model{}, []tea.ProgramOption{tea.WithAltScreen()}
+	return model{user: s.User(), choice: rand.IntN(len(choices))}, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
 // programHandler builds each session's program and subscribes it to broadcasts.
