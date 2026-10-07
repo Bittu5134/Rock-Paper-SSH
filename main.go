@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
@@ -94,14 +95,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
-		case "left", "h":
-			m.choice = (m.choice + 2) % 3
-			return m, nil
-		case "right", "l":
+		case "tab":
 			m.choice = (m.choice + 1) % 3
-			return m, nil
-		case "enter":
-			// hook: lock in m.choice for this round
 			return m, nil
 		}
 	}
@@ -110,16 +105,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 var choices = [3]string{"🪨 Rock", "📄 Paper", "✂️  Scissors"}
 
+var helpStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("240")).
+	MarginTop(1)
+
 func (m model) View() string {
 	s := fmt.Sprintf("⏳ %ds left in round\n\n", int(timeLeft().Seconds())+1)
-	for i, c := range choices {
-		cursor := "  "
-		if i == m.choice {
-			cursor = "> "
-		}
-		s += cursor + c + "\n"
-	}
-	return s + "\n(←/→ to choose, enter to lock in, ctrl+c to quit)\n"
+	s += fmt.Sprintf("Your current choice is, %s\n", choices[m.choice])
+	return s + helpStyle.Render("tab to choose · ctrl+c to quit") + "\n"
 }
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
