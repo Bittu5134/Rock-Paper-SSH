@@ -23,7 +23,6 @@ const (
 )
 
 var choices = [3]string{"🪨", "📄", "✂️ "}
-var win_choice = rand.IntN(len(choices))
 
 var helpStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("240")).
@@ -53,7 +52,6 @@ func roundLoop() {
 	for {
 		time.Sleep(200 * time.Millisecond)
 		if timeLeft() <= 0 {
-
 			picks, dist, total := snapshotChoices()
 
 			// The system's winning choice — random index, different every round.
@@ -61,7 +59,7 @@ func roundLoop() {
 
 			broadcast(roundEndMsg{
 				winner: winner, // arbitrary data: the system's winning index
-				picks:  picks,  // username -> choice index
+				picks:  picks,  // session id -> pick
 				dist:   dist,   // % of users per choice, out of 100
 				total:  total,  // how many users picked
 			})
@@ -74,24 +72,31 @@ func roundLoop() {
 
 // --- global choice registry -------------------------------------------------
 
+// pick is one user's locked-in choice. The registry is keyed by session id so
+// two connections from the same username don't overwrite each other.
+type pick struct {
+	user string // display name (the SSH username)
+	idx  int    // choice index (0..2)
+}
+
 var (
 	choiceMu    sync.Mutex
-	userChoices = map[string]int{} // username -> choice index (0..2)
+	userChoices = map[string]pick{} // session id -> pick
 )
 
-func lockChoice(user string, choiceIdx int) {
+func lockChoice(sessionID, user string, choiceIdx int) {
 	choiceMu.Lock()
-	userChoices[user] = choiceIdx
+	userChoices[sessionID] = pick{user: user, idx: choiceIdx}
 	choiceMu.Unlock()
 }
 
-func snapshotChoices() (map[string]int, [3]float64, int) {
+func snapshotChoices() (map[string]pick, [3]float64, int) {
 	choiceMu.Lock()
-	snapshot := make(map[string]int, len(userChoices))
+	snapshot := make(map[string]pick, len(userChoices))
 	var counts [3]int
-	for user, idx := range userChoices {
-		snapshot[user] = idx
-		counts[idx]++
+	for id, p := range userChoices {
+		snapshot[id] = p
+		counts[p.idx]++
 	}
 	choiceMu.Unlock()
 
@@ -108,7 +113,7 @@ func snapshotChoices() (map[string]int, [3]float64, int) {
 
 func resetChoices() {
 	choiceMu.Lock()
-	userChoices = map[string]int{}
+	userChoices = map[string]pick{}
 	choiceMu.Unlock()
 }
 
@@ -135,10 +140,10 @@ func broadcast(m tea.Msg) {
 
 // roundEndMsg carries the round's outcome — same data delivered to everyone.
 type roundEndMsg struct {
-	winner int            // the system's winning choice index
-	picks  map[string]int // username -> choice index
-	dist   [3]float64     // % of users per choice, out of 100
-	total  int            // how many users picked
+	winner int             // the system's winning choice index
+	picks  map[string]pick // session id -> pick
+	dist   [3]float64      // % of users per choice, out of 100
+	total  int             // how many users picked
 }
 
 type tickMsg time.Time
@@ -150,12 +155,13 @@ func tickEvery() tea.Cmd {
 }
 
 type model struct {
-	user   string
-	choice int
-	winner int
-	picks  map[string]int
-	dist   [3]float64
-	total  int
+	user      string // SSH username, for display
+	sessionID string // unique per connection — the registry key
+	choice    int
+	winner    int
+	picks     map[string]pick
+	dist      [3]float64
+	total     int
 }
 
 func (m model) Init() tea.Cmd { return tickEvery() }
@@ -186,10 +192,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	s := fmt.Sprintf("⏳ %ds left in round\n\n", int(timeLeft().Seconds())+1)
-	s += fmt.Sprintf("Your current choice is, %s (index %d)\n", choices[m.choice], m.choice)
-	lockChoice(m.user, m.choice)
+	s += fmt.Sprintf("Your current choice is, %s\n", choices[m.choice])
+	lockChoice(m.sessionID, m.user, m.choice)
 	if m.picks != nil {
-		s += fmt.Sprintf("\nROUND ENDED — system picked index %d (%s) as the winner\n", m.winner, choices[m.winner])
+		s += fmt.Sprintf("\nROUND ENDED — system picked %s as the winner\n", choices[m.winner])
 
 		s += fmt.Sprintf("\nWhat users picked (%d pickers):\n", m.total)
 		for i, pct := range m.dist {
@@ -197,22 +203,26 @@ func (m model) View() string {
 		}
 
 		s += "\nThis round's picks:\n"
-		for user, idx := range m.picks {
+		for _, p := range m.picks {
 			verdict := ""
-			if idx == m.winner {
+			if p.idx == m.winner {
 				verdict = " 🎉"
 			}
-			s += fmt.Sprintf("  %s chose index %d (%s)%s\n", user, idx, choices[idx], verdict)
+			s += fmt.Sprintf("  %s chose %s%s\n", p.user, choices[p.idx], verdict)
 		}
 	}
 	return s + helpStyle.Render("tab to choose · ctrl+c to quit") + "\n"
 }
 
-// --- ssh wiring ---------------------------------------------------------------
+// --- ssh wiring -------------------------------------------------------------
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
-	return model{user: s.User(), choice: rand.IntN(len(choices))}, []tea.ProgramOption{tea.WithAltScreen()}
+	return model{
+		user:      s.User(),
+		sessionID: s.Context().SessionID(), // unique per connection
+		choice:    rand.IntN(len(choices)),
+	}, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
 // programHandler builds each session's program and subscribes it to broadcasts.
