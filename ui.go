@@ -25,11 +25,14 @@ const (
 )
 
 const (
-	frameMargin    = 6
+	minTermW = 76
+	minTermH = 24
+
+	frameMargin    = 4
 	maxContentW    = 90
 	minContentW    = 50
 	wideBreakpoint = 88
-	leaderboardInW = 30
+	leaderboardInW = 26
 	panelGap       = 2
 	minShareBarW   = 20
 	maxShareBarW   = 60
@@ -55,7 +58,7 @@ func newStyles(r *lipgloss.Renderer) *uiStyles {
 		subtitle:  r.NewStyle().Foreground(lipgloss.Color(colAccent)),
 		timer:     r.NewStyle().Bold(true).Foreground(lipgloss.Color(colAccent)),
 		panel:     r.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(colDim)).Padding(0, 1),
-		panelHead: r.NewStyle().Bold(true).Foreground(lipgloss.Color(colAccent)).MarginBottom(1),
+		panelHead: r.NewStyle().Bold(true).Foreground(lipgloss.Color(colAccent)),
 		help:      r.NewStyle().Foreground(lipgloss.Color(colDim)),
 		label:     r.NewStyle().Foreground(lipgloss.Color(colDim)),
 		win:       r.NewStyle().Foreground(lipgloss.Color(colGood)),
@@ -109,9 +112,7 @@ func renderTimer(r *lipgloss.Renderer, st *uiStyles, contentW int) string {
 }
 
 func renderShareBar(r *lipgloss.Renderer, st *uiStyles, dist [3]float64, total int, width int) string {
-	headTitle := r.NewStyle().Bold(true).Foreground(lipgloss.Color(colAccent)).Render("PICKS ACROSS THE BOARD")
-	headHint := st.help.Render("(tab to cycle)")
-	head := r.NewStyle().MarginBottom(1).Render(headTitle + " " + headHint)
+	head := st.panelHead.Render("PICKS ACROSS THE BOARD") + " " + st.help.Render("(tab to cycle)")
 	if total == 0 || width < 10 {
 		return lipgloss.JoinVertical(lipgloss.Left, head, st.label.Render("no picks yet — waiting for players"))
 	}
@@ -150,7 +151,8 @@ func renderLeaderboard(st *uiStyles, board leaderboard, meSessionID string, maxR
 		shown, hidden = board[:maxRows], len(board)-maxRows
 	}
 
-	rows := make([]string, 0, len(shown)+1)
+	rows := make([]string, 0, len(shown)+2)
+	rows = append(rows, head)
 	for rank, e := range shown {
 		name := e.user
 		if e.sessionID == meSessionID {
@@ -165,15 +167,25 @@ func renderLeaderboard(st *uiStyles, board leaderboard, meSessionID string, maxR
 	if hidden > 0 {
 		rows = append(rows, st.label.Render(fmt.Sprintf("    +%d more players", hidden)))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, head, strings.Join(rows, "\n"))
+	return lipgloss.JoinVertical(lipgloss.Left, rows...)
 }
 
 func renderRoundSummary(r *lipgloss.Renderer, st *uiStyles, msg *roundEndMsg, meSessionID string) string {
 	head := st.panelHead.Render("LAST ROUND")
+	if msg == nil {
+		return lipgloss.JoinVertical(lipgloss.Left, head, st.label.Render("waiting for first round to finish..."))
+	}
 	serverMove := r.NewStyle().Bold(true).Foreground(choiceColor(msg.serverChoice)).Render(names[msg.serverChoice])
-	lines := []string{fmt.Sprintf("%s  %s", st.label.Render("SERVER"), serverMove)}
+	lines := []string{head, fmt.Sprintf("%s  %s", st.label.Render("SERVER"), serverMove)}
 
-	for _, p := range msg.sortedResults() {
+	results := msg.sortedResults()
+	maxShown := 2
+	shown := results
+	if len(results) > maxShown {
+		shown = results[:maxShown]
+	}
+
+	for _, p := range shown {
 		mark, markStyle := "· draw", st.label
 		name := p.user
 		if p.sessionID == meSessionID {
@@ -193,14 +205,26 @@ func renderRoundSummary(r *lipgloss.Renderer, st *uiStyles, msg *roundEndMsg, me
 		}
 		lines = append(lines, fmt.Sprintf("  %s %-8s %s %s", name, names[p.idx], markStyle.Render(mark), delta))
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, head, strings.Join(lines, "\n"))
+	if len(results) > maxShown {
+		lines = append(lines, st.label.Render(fmt.Sprintf("    +%d more players", len(results)-maxShown)))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
 
-type pageOpts struct {
-	showSubtitle bool
-	showSummary  bool
-	hideBoard    bool
-	lbRows       int
+func renderTooSmall(r *lipgloss.Renderer, st *uiStyles, w, h int) string {
+	title := r.NewStyle().Bold(true).Foreground(lipgloss.Color(colBad)).Render("⚠️  TERMINAL TOO SMALL")
+	msg := st.label.Render("Please resize your terminal window")
+	cur := fmt.Sprintf("Current size: %s", st.lose.Render(fmt.Sprintf("%d × %d", w, h)))
+	req := fmt.Sprintf("Minimum size: %s", st.win.Render(fmt.Sprintf("%d × %d", minTermW, minTermH)))
+
+	content := lipgloss.JoinVertical(lipgloss.Center, title, "", msg, "", cur, req)
+	box := r.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colBad)).
+		Padding(1, 3).
+		Render(content)
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }
 
 func renderFullPage(m model) string {
@@ -214,77 +238,51 @@ func renderFullPage(m model) string {
 		h = 24
 	}
 
+	if w < minTermW || h < minTermH {
+		return renderTooSmall(r, st, w, h)
+	}
+
 	contentW := min(max(w-frameMargin, minContentW), maxContentW)
-	contentH := h - frameMargin
-	wide := contentW >= wideBreakpoint
-	nRows := max(contentH-24, 5)
-
-	attempts := []pageOpts{
-		{showSubtitle: true, showSummary: true, lbRows: nRows},
-		{showSubtitle: false, showSummary: true, lbRows: nRows},
-		{showSubtitle: false, showSummary: false, lbRows: nRows},
-		{showSubtitle: false, showSummary: false, lbRows: 3},
-		{showSubtitle: false, showSummary: false, lbRows: 3, hideBoard: true},
-	}
-
-	var page string
-	for _, o := range attempts {
-		page = assemblePage(r, st, m, o, contentW, wide)
-		if lipgloss.Height(page) <= contentH {
-			break
-		}
-	}
+	page := assemblePage(r, st, m, contentW)
 
 	frame := r.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(colAccent)).
-		Padding(0, 2)
+		Padding(0, 1)
 
-	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, frame.Render(page))
+	rendered := frame.Render(page)
+	if lipgloss.Height(rendered) > h || lipgloss.Width(rendered) > w {
+		return renderTooSmall(r, st, w, h)
+	}
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, rendered)
 }
 
-func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, o pageOpts, contentW int, wide bool) string {
-	parts := []string{st.title.Render("ROCK  ·  PAPER  ·  SCISSORS")}
-	if o.showSubtitle {
-		parts = append(parts, st.subtitle.Render("SSH battle — beat the board, take their points"))
+func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, contentW int) string {
+	parts := []string{
+		st.title.Render("ROCK  ·  PAPER  ·  SCISSORS"),
+		st.subtitle.Render("SSH battle — beat the board, take their points"),
+		st.help.Render("HINT: " + m.hint),
 	}
-	parts = append(parts, st.help.Render("HINT: " + m.hint))
 	header := lipgloss.JoinVertical(lipgloss.Center, parts...)
 
 	timer := renderTimer(r, st, contentW)
 	choices := renderChoices(r, m.choice)
 
-	mainW := contentW - 2
-	if wide && !o.hideBoard {
-		mainW = contentW - (leaderboardInW + 4) - panelGap - 2
-	}
+	mainW := contentW - (leaderboardInW + 4) - panelGap - 2
 	barW := min(max(mainW-2, minShareBarW), maxShareBarW)
 
 	mainContent := lipgloss.JoinVertical(lipgloss.Left, choices, "", renderShareBar(r, st, m.dist, m.total, barW))
+	boardContent := renderLeaderboard(st, m.leaderboard, m.sessionID, 5)
 
-	var body string
-	switch {
-	case o.hideBoard:
-		body = st.panel.Width(mainW).Render(mainContent)
-	case wide:
-		boardContent := renderLeaderboard(st, m.leaderboard, m.sessionID, o.lbRows)
-		panelH := max(lipgloss.Height(mainContent), lipgloss.Height(boardContent))
-		mainPanel := st.panel.Width(mainW).Height(panelH).Render(mainContent)
-		boardPanel := st.panel.Width(leaderboardInW + 2).Height(panelH).Render(boardContent)
-		body = lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, strings.Repeat(" ", panelGap), boardPanel)
-	default:
-		boardContent := renderLeaderboard(st, m.leaderboard, m.sessionID, o.lbRows)
-		mainPanel := st.panel.Width(mainW).Render(mainContent)
-		boardPanel := st.panel.Width(mainW).Render(boardContent)
-		body = lipgloss.JoinVertical(lipgloss.Left, mainPanel, "", boardPanel)
-	}
+	panelH := max(lipgloss.Height(mainContent), lipgloss.Height(boardContent))
+	mainPanel := st.panel.Width(mainW).Height(panelH).Render(mainContent)
+	boardPanel := st.panel.Width(leaderboardInW + 2).Height(panelH).Render(boardContent)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, strings.Repeat(" ", panelGap), boardPanel)
 
-	page := []string{header, "", timer, "", body}
+	summary := st.panel.Width(contentW - 2).Render(renderRoundSummary(r, st, m.lastRound, m.sessionID))
 
-	if o.showSummary && m.lastRound != nil {
-		summary := st.panel.Width(contentW - 2).Render(renderRoundSummary(r, st, m.lastRound, m.sessionID))
-		page = append(page, "", summary)
-	}
+	page := []string{header, "", timer, body, summary}
 
 	return lipgloss.JoinVertical(lipgloss.Center, page...)
 }
