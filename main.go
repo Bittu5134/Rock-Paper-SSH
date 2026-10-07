@@ -290,11 +290,18 @@ func (m model) View() string {
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
 	r := bubbletea.MakeRenderer(s)
+	pty, _, active := s.Pty()
+	w, h := 80, 24
+	if active && pty.Window.Width > 0 && pty.Window.Height > 0 {
+		w, h = pty.Window.Width, pty.Window.Height
+	}
 	return model{
 		user:        randomUser(),
 		sessionID:   s.Context().SessionID(),
 		hint:        getCurrentHint(),
 		choice:      rand.IntN(len(names)),
+		width:       w,
+		height:      h,
 		renderer:    r,
 		styles:      newStyles(r),
 		leaderboard: getLeaderboard(),
