@@ -72,6 +72,30 @@ func roundLoop() {
 	}
 }
 
+var (
+	activeMu       sync.RWMutex
+	activeSessions = map[string]struct{}{}
+)
+
+func registerSession(sessionID string) {
+	activeMu.Lock()
+	activeSessions[sessionID] = struct{}{}
+	activeMu.Unlock()
+}
+
+func unregisterSession(sessionID string) {
+	activeMu.Lock()
+	delete(activeSessions, sessionID)
+	activeMu.Unlock()
+}
+
+func isSessionActive(sessionID string) bool {
+	activeMu.RLock()
+	defer activeMu.RUnlock()
+	_, ok := activeSessions[sessionID]
+	return ok
+}
+
 type pick struct {
 	user string
 	idx  int
@@ -83,8 +107,17 @@ var (
 )
 
 func lockChoice(sessionID, user string, choiceIdx int) {
+	if !isSessionActive(sessionID) {
+		return
+	}
 	choiceMu.Lock()
 	userChoices[sessionID] = pick{user: user, idx: choiceIdx}
+	choiceMu.Unlock()
+}
+
+func removeChoice(sessionID string) {
+	choiceMu.Lock()
+	delete(userChoices, sessionID)
 	choiceMu.Unlock()
 }
 
@@ -93,6 +126,9 @@ func snapshotChoices() (map[string]pick, [3]float64, int) {
 	snapshot := make(map[string]pick, len(userChoices))
 	var counts [3]int
 	for id, p := range userChoices {
+		if !isSessionActive(id) {
+			continue
+		}
 		snapshot[id] = p
 		counts[p.idx]++
 	}
@@ -287,7 +323,7 @@ func (m model) View() string {
 	return renderFullPage(m)
 }
 
-func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
+func teaHandler(s ssh.Session) (model, []tea.ProgramOption) {
 	log.Info(s.User())
 	r := bubbletea.MakeRenderer(s)
 	return model{
@@ -302,7 +338,13 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 }
 
 func programHandler(s ssh.Session) *tea.Program {
+	sessionID := s.Context().SessionID()
+	registerSession(sessionID)
+
 	m, opts := teaHandler(s)
+	ensurePlayer(m.sessionID, m.user)
+	lockChoice(m.sessionID, m.user, m.choice)
+
 	p := tea.NewProgram(m, append(opts, bubbletea.MakeOptions(s)...)...)
 
 	ch := make(chan tea.Msg, 16)
@@ -314,6 +356,22 @@ func programHandler(s ssh.Session) *tea.Program {
 		for msg := range ch {
 			p.Send(msg)
 		}
+	}()
+
+	// Cleanup on disconnect: drop this session's subscription, pending pick
+	// and ledger entry so long-running servers don't accumulate ghost
+	// players and leaked goroutines forever.
+	go func() {
+		<-s.Context().Done()
+		unregisterSession(sessionID)
+
+		subMu.Lock()
+		delete(subs, ch)
+		close(ch)
+		subMu.Unlock()
+
+		removeChoice(sessionID)
+		removePlayer(sessionID)
 	}()
 	return p
 }

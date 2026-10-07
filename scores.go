@@ -28,6 +28,12 @@ func ensurePlayer(sessionID, user string) {
 	ledgerMu.Unlock()
 }
 
+func removePlayer(sessionID string) {
+	ledgerMu.Lock()
+	delete(ledger, sessionID)
+	ledgerMu.Unlock()
+}
+
 type leaderboard []leaderEntry
 
 type leaderEntry struct {
@@ -40,6 +46,9 @@ func getLeaderboard() leaderboard {
 	ledgerMu.Lock()
 	board := make(leaderboard, 0, len(ledger))
 	for id, e := range ledger {
+		if !isSessionActive(id) {
+			continue
+		}
 		board = append(board, leaderEntry{sessionID: id, user: e.user, points: e.points})
 	}
 	ledgerMu.Unlock()
@@ -69,6 +78,9 @@ func scoreRound(serverChoice int, picks map[string]pick) map[string]pickResult {
 	pool := 0
 	var winners, losers []string
 	for id, p := range picks {
+		if !isSessionActive(id) {
+			continue
+		}
 		ensurePlayer(id, p.user)
 		res := pickResult{sessionID: id, user: p.user, idx: p.idx}
 		switch p.idx {
