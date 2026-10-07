@@ -23,27 +23,46 @@ jobs:
       - name: Build Binary (Linux AMD64)
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o rock-paper-ssh .
+          sha256sum rock-paper-ssh
 
-      - name: Deploy files via SCP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          source: "rock-paper-ssh,hints.json"
-          target: "~/rock-paper-ssh/"
-          overwrite: true
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Restart Service via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: |
-            mkdir -p ~/rock-paper-ssh
-            chmod +x ~/rock-paper-ssh/rock-paper-ssh
-            systemctl --user restart rock-paper-ssh || echo "Service not yet started or created"
-            systemctl --user status rock-paper-ssh --no-pager || true
+      - name: Ensure Remote Directory Exists
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "mkdir -p /root/rock-paper-ssh" || true
+
+      - name: Upload Binary and Files via rsync
+        run: |
+          # Nest's SSH bastion gateway returns exit code 255 on session close even after success,
+          # so we absorb rsync's exit code with '|| true' and verify SHA256 checksum below.
+          rsync -avz \
+            -e "ssh -i ~/.ssh/id_ed25519" \
+            ./rock-paper-ssh ./hints.json \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/root/rock-paper-ssh/ || true
+
+      - name: Verify Upload
+        run: |
+          LOCAL_HASH=$(sha256sum rock-paper-ssh | cut -d' ' -f1)
+          REMOTE_HASH=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "sha256sum /root/rock-paper-ssh/rock-paper-ssh | cut -d' ' -f1" || true)
+
+          echo "Local:  $LOCAL_HASH"
+          echo "Remote: $REMOTE_HASH"
+
+          if [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then
+            echo "::error::Checksum mismatch or SSH connection failed — upload did not succeed"
+            exit 1
+          fi
+
+          echo "Checksums match — upload confirmed!"
+
+      - name: Restart Service
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "chmod +x /root/rock-paper-ssh/rock-paper-ssh && systemctl restart rock-paper-ssh && systemctl status rock-paper-ssh --no-pager" || true
