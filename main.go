@@ -1,4 +1,3 @@
-// Rock-Paper-SSH: a rock-paper-scissors battle royale served over SSH.
 package main
 
 import (
@@ -23,8 +22,6 @@ const (
 
 var names = [3]string{"Stone", "Paper", "Scissors"}
 
-// --- global round timer -----------------------------------------------------
-
 var (
 	timerMu  sync.Mutex
 	roundEnd time.Time
@@ -42,25 +39,22 @@ func timeLeft() time.Duration {
 	return time.Until(roundEnd)
 }
 
-// roundLoop ends the round for everyone exactly once, then starts the next.
 func roundLoop() {
 	for {
 		time.Sleep(200 * time.Millisecond)
 		if timeLeft() <= 0 {
 			picks, dist, total := snapshotChoices()
 
-			// The system's winning choice — random index, different every round.
 			winner := rand.IntN(len(names))
 
-			// Score the round: winners take the losers' points.
 			results := scoreRound(winner, picks)
 
 			broadcast(roundEndMsg{
-				winner:      winner,           // the system's winning index
-				results:     results,          // session id -> outcome + delta
-				dist:        dist,             // % of users per choice, out of 100
-				total:       total,            // how many users picked
-				leaderboard: getLeaderboard(), // fresh, sorted
+				winner:      winner,
+				results:     results,
+				dist:        dist,
+				total:       total,
+				leaderboard: getLeaderboard(),
 			})
 
 			startRound(roundDuration)
@@ -69,18 +63,14 @@ func roundLoop() {
 	}
 }
 
-// --- global choice registry -------------------------------------------------
-
-// pick is one user's locked-in choice. The registry is keyed by session id so
-// two connections from the same username don't overwrite each other.
 type pick struct {
-	user string // display name (the SSH username)
-	idx  int    // choice index (0..2)
+	user string
+	idx  int
 }
 
 var (
 	choiceMu    sync.Mutex
-	userChoices = map[string]pick{} // session id -> pick
+	userChoices = map[string]pick{}
 )
 
 func lockChoice(sessionID, user string, choiceIdx int) {
@@ -99,7 +89,6 @@ func snapshotChoices() (map[string]pick, [3]float64, int) {
 	}
 	choiceMu.Unlock()
 
-	// what fraction of users picked each choice, out of 100%
 	var dist [3]float64
 	total := len(snapshot)
 	if total > 0 {
@@ -116,9 +105,6 @@ func resetChoices() {
 	choiceMu.Unlock()
 }
 
-// --- broadcast fan-out ------------------------------------------------------
-
-// one channel per connected session
 var (
 	subMu sync.Mutex
 	subs  = map[chan tea.Msg]struct{}{}
@@ -130,29 +116,24 @@ func broadcast(m tea.Msg) {
 	for ch := range subs {
 		select {
 		case ch <- m:
-		default: // drop for sessions that aren't reading fast enough
+		default:
 		}
 	}
 }
 
-// --- bubbletea glue ---------------------------------------------------------
-
-// roundEndMsg carries the fully scored round — same data delivered to everyone
-// at the same instant.
-
 var WordDict = map[string][]string{
-    "adjectives": {
-        "Cyber", "Shadow", "Neon", "Epic", "Silent", "Cosmic", "Toxic",
-        "Frozen", "Golden", "Iron", "Quantum", "Savage", "Phantom",
-        "Pixel", "Alpha", "Hyper", "Astral", "Chaos", "Dark", "Swift",
-        "Fierce", "Brave", "Rapid", "Stealthy", "Wild", "Electric", "Rogue",
-    },
-    "nouns": {
-        "Viper", "Ninja", "Wolf", "Dragon", "Falcon", "Ghost", "Titan",
-        "Reaper", "Knight", "Panda", "Shark", "Phoenix", "Goblin",
-        "Wizard", "Samurai", "Cobra", "Demon", "Glitch", "Nomad", "Legend",
-        "Stalker", "Hacker", "Valkyrie", "Beast", "Hunter", "Mage", "Spartan",
-    },
+	"adjectives": {
+		"Cyber", "Shadow", "Neon", "Epic", "Silent", "Cosmic", "Toxic",
+		"Frozen", "Golden", "Iron", "Quantum", "Savage", "Phantom",
+		"Pixel", "Alpha", "Hyper", "Astral", "Chaos", "Dark", "Swift",
+		"Fierce", "Brave", "Rapid", "Stealthy", "Wild", "Electric", "Rogue",
+	},
+	"nouns": {
+		"Viper", "Ninja", "Wolf", "Dragon", "Falcon", "Ghost", "Titan",
+		"Reaper", "Knight", "Panda", "Shark", "Phoenix", "Goblin",
+		"Wizard", "Samurai", "Cobra", "Demon", "Glitch", "Nomad", "Legend",
+		"Stalker", "Hacker", "Valkyrie", "Beast", "Hunter", "Mage", "Spartan",
+	},
 }
 
 func randomUser() string {
@@ -166,11 +147,11 @@ func randomUser() string {
 }
 
 type roundEndMsg struct {
-	winner      int                   // the system's winning choice index
-	results     map[string]pickResult // session id -> outcome + points delta
-	dist        [3]float64            // % of users per choice, out of 100
-	total       int                   // how many users picked
-	leaderboard leaderboard           // sorted, most points first
+	winner      int
+	results     map[string]pickResult
+	dist        [3]float64
+	total       int
+	leaderboard leaderboard
 }
 
 type tickMsg time.Time
@@ -182,16 +163,16 @@ func tickEvery() tea.Cmd {
 }
 
 type model struct {
-	user        string             // SSH username, for display
-	sessionID   string             // unique per connection — the registry key
-	choice      int                // currently selected choice (tab cycles)
-	width       int                // this client's terminal width
-	height      int                // this client's terminal height
-	renderer    *lipgloss.Renderer // uses this SSH client's color capabilities
+	user        string
+	sessionID   string
+	choice      int
+	width       int
+	height      int
+	renderer    *lipgloss.Renderer
 	styles      *uiStyles
-	lastRound   *roundEndMsg // most recent scored round, if any
-	leaderboard leaderboard  // current global board
-	dist        [3]float64   // share of each choice from the last round
+	lastRound   *roundEndMsg
+	leaderboard leaderboard
+	dist        [3]float64
 	total       int
 }
 
@@ -199,7 +180,7 @@ func (m model) Init() tea.Cmd { return tickEvery() }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case roundEndMsg: // all users receive the same scored round at the same time
+	case roundEndMsg:
 		round := msg
 		m.lastRound = &round
 		m.leaderboard = msg.leaderboard
@@ -210,7 +191,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m, tickEvery()
 
-	case tea.WindowSizeMsg: // initial size + every live resize
+	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 
@@ -227,19 +208,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	// keep the global registry in sync with what this session has selected
 	lockChoice(m.sessionID, m.user, m.choice)
 	return renderFullPage(m)
 }
 
-// --- ssh wiring -------------------------------------------------------------
-
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
-	r := bubbletea.MakeRenderer(s) // color profile of THIS client's terminal
+	r := bubbletea.MakeRenderer(s)
 	return model{
 		user:        randomUser(),
-		sessionID:   s.Context().SessionID(), // unique per connection
+		sessionID:   s.Context().SessionID(),
 		choice:      rand.IntN(len(names)),
 		renderer:    r,
 		styles:      newStyles(r),
@@ -247,7 +225,6 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	}, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
-// programHandler builds each session's program and subscribes it to broadcasts.
 func programHandler(s ssh.Session) *tea.Program {
 	m, opts := teaHandler(s)
 	p := tea.NewProgram(m, append(opts, bubbletea.MakeOptions(s)...)...)
