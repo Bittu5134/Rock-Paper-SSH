@@ -347,6 +347,12 @@ func main() {
 	s, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(host, port)),
 		wish.WithHostKeyPath(hostKeyPath),
+		wish.WithPublicKeyAuth(func(_ ssh.Context, _ ssh.PublicKey) bool {
+			return true
+		}),
+		wish.WithPasswordAuth(func(_ ssh.Context, _ string) bool {
+			return true
+		}),
 		wish.WithMiddleware(bubbletea.MiddlewareWithProgramHandler(programHandler, termenv.Ascii)),
 	)
 	if err != nil {
