@@ -3,24 +3,21 @@ package main
 import (
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/log"
 	"github.com/charmbracelet/ssh"
 	"github.com/charmbracelet/wish"
 	"github.com/charmbracelet/wish/bubbletea"
+	"github.com/muesli/termenv"
 )
 
 const port = "2222"
 
-// TIMER SETUP START
-
 var timerMu sync.Mutex
-var roundEnd time.Time // zero value = "no round running"
+var roundEnd time.Time
 
 func startRound(d time.Duration) {
 	timerMu.Lock()
@@ -38,7 +35,6 @@ func roundOver() bool {
 	return timeLeft() <= 0
 }
 
-// broadcast plumbing: one channel per connected session
 var (
 	subMu sync.Mutex
 	subs  = map[chan tea.Msg]struct{}{}
@@ -50,27 +46,23 @@ func broadcast(m tea.Msg) {
 	for ch := range subs {
 		select {
 		case ch <- m:
-		default: // skip sessions that aren't reading fast enough
+		default:
 		}
 	}
 }
 
-// roundLoop runs on the server: detects expiry ONCE and tells everyone.
 func roundLoop() {
 	for {
 		time.Sleep(200 * time.Millisecond)
 		if roundOver() {
 			broadcast(roundEndMsg{})
-			startRound(roundDuration) // next round starts for everyone simultaneously
+			startRound(roundDuration)
 		}
 	}
 }
 
-// TIMER SETUP END
-
 const roundDuration = 30 * time.Second
 
-// roundEndMsg is sent by the server to every client when the round expires.
 type roundEndMsg struct{}
 
 type tickMsg time.Time
@@ -82,18 +74,17 @@ func tickEvery() tea.Cmd {
 }
 
 type model struct {
-	messages []string
-	input    textinput.Model
+	choice int
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, tickEvery())
+	return tickEvery()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case roundEndMsg: // all clients receive this in the same instant
-		m.messages = append(m.messages, "⏰ Round ended! New round started.")
+	case roundEndMsg:
+		// all users reach here at the same time — hook in round scoring etc.
 		return m, nil
 
 	case tickMsg:
@@ -103,37 +94,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "left", "h":
+			m.choice = (m.choice + 2) % 3
+			return m, nil
+		case "right", "l":
+			m.choice = (m.choice + 1) % 3
+			return m, nil
 		case "enter":
-			text := strings.TrimSpace(m.input.Value())
-			if text != "" {
-				m.messages = append(m.messages, text)
-				m.input.SetValue("")
-			}
+			// hook: lock in m.choice for this round
 			return m, nil
 		}
 	}
-
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	return m, nil
 }
+
+var choices = [3]string{"🪨 Rock", "📄 Paper", "✂️  Scissors"}
 
 func (m model) View() string {
 	s := fmt.Sprintf("⏳ %ds left in round\n\n", int(timeLeft().Seconds())+1)
-	for _, msg := range m.messages {
-		s += msg + "\n"
+	for i, c := range choices {
+		cursor := "  "
+		if i == m.choice {
+			cursor = "> "
+		}
+		s += cursor + c + "\n"
 	}
-	return s + m.input.View() + "\n\n(enter to submit, ctrl+c to quit)\n"
+	return s + "\n(←/→ to choose, enter to lock in, ctrl+c to quit)\n"
 }
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
-	ti := textinput.New()
-	ti.Placeholder = "type here…"
-	ti.Focus()
-	ti.CharLimit = 50
-	ti.Width = 40
-	return model{input: ti}, []tea.ProgramOption{tea.WithAltScreen()}
+	return model{choice: 0}, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
 // programHandler builds each session's program and subscribes it to broadcasts.
@@ -161,7 +152,7 @@ func main() {
 	s, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort("localhost", port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
-		wish.WithMiddleware(bubbletea.MiddlewareWithProgramHandler(programHandler, 0)),
+		wish.WithMiddleware(bubbletea.MiddlewareWithProgramHandler(programHandler, termenv.Ascii)),
 	)
 	if err != nil {
 		log.Fatal("Could not start server", "error", err)
