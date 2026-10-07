@@ -168,8 +168,8 @@ func renderLeaderboard(st *uiStyles, board leaderboard, meSessionID string, maxR
 
 func renderRoundSummary(r *lipgloss.Renderer, st *uiStyles, msg *roundEndMsg, meSessionID string) string {
 	head := st.panelHead.Render("LAST ROUND")
-	winner := r.NewStyle().Bold(true).Foreground(choiceColor(msg.winner)).Render(names[msg.winner])
-	lines := []string{fmt.Sprintf("%s  %s", st.label.Render("WINNER"), winner)}
+	serverMove := r.NewStyle().Bold(true).Foreground(choiceColor(msg.serverChoice)).Render(names[msg.serverChoice])
+	lines := []string{fmt.Sprintf("%s  %s", st.label.Render("SERVER"), serverMove)}
 
 	for _, p := range msg.sortedResults() {
 		mark, markStyle := "· draw", st.label
@@ -177,10 +177,10 @@ func renderRoundSummary(r *lipgloss.Renderer, st *uiStyles, msg *roundEndMsg, me
 		if p.sessionID == meSessionID {
 			name = st.you.Render(name + " (you)")
 		}
-		switch {
-		case p.idx == msg.winner:
+		switch p.outcome {
+		case "win":
 			mark, markStyle = "▲ WIN", st.win
-		case p.outcome == "lose":
+		case "lose":
 			mark, markStyle = "▼ LOSE", st.lose
 		}
 		delta := ""

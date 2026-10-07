@@ -61,20 +61,21 @@ type pickResult struct {
 	opponentCount int
 }
 
-func scoreRound(winner int, picks map[string]pick) map[string]pickResult {
+func scoreRound(serverChoice int, picks map[string]pick) map[string]pickResult {
 	results := make(map[string]pickResult, len(picks))
-	loserChoice := beats(winner)
+	winningChoice := beatenBy(serverChoice)
+	losingChoice := beats(serverChoice)
 
 	pool := 0
 	var winners, losers []string
 	for id, p := range picks {
 		ensurePlayer(id, p.user)
 		res := pickResult{sessionID: id, user: p.user, idx: p.idx}
-		switch {
-		case p.idx == winner:
+		switch p.idx {
+		case winningChoice:
 			res.outcome = "win"
 			winners = append(winners, id)
-		case p.idx == loserChoice:
+		case losingChoice:
 			res.outcome = "lose"
 			losers = append(losers, id)
 		default:

@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,11 +21,11 @@ import (
 
 const (
 	port          = "2222"
-	roundDuration = 10 * time.Second
+	roundDuration = 5 * time.Second
 )
 
 var names = [3]string{"Stone", "Paper", "Scissors"}
-var winner = rand.IntN(len(names))
+var serverChoice = rand.IntN(len(names))
 
 var (
 	timerMu  sync.Mutex
@@ -49,19 +50,24 @@ func roundLoop() {
 		if timeLeft() <= 0 {
 			picks, dist, total := snapshotChoices()
 
-			
-			results := scoreRound(winner, picks)
-			
-			broadcast(roundEndMsg{
-				winner:      winner,
-				results:     results,
-				dist:        dist,
-				total:       total,
-				leaderboard: getLeaderboard(),
-			})
-			
+			oldServerChoice := serverChoice
+			results := scoreRound(oldServerChoice, picks)
+
 			startRound(roundDuration)
 			resetChoices()
+
+			choiceMu.Lock()
+			nextHint := currentHint
+			choiceMu.Unlock()
+
+			broadcast(roundEndMsg{
+				serverChoice: oldServerChoice,
+				results:      results,
+				dist:         dist,
+				total:        total,
+				leaderboard:  getLeaderboard(),
+				hint:         nextHint,
+			})
 		}
 	}
 }
@@ -105,7 +111,8 @@ func snapshotChoices() (map[string]pick, [3]float64, int) {
 func resetChoices() {
 	choiceMu.Lock()
 	userChoices = map[string]pick{}
-	winner = rand.IntN(len(names))
+	serverChoice = rand.IntN(len(names))
+	currentHint = getHintForChoice(serverChoice)
 	choiceMu.Unlock()
 }
 
@@ -140,29 +147,62 @@ var WordDict = map[string][]string{
 	},
 }
 
-var hints []string
+var (
+	hintsMap    map[string][]string
+	currentHint string
+)
 
-func loadHints(path string) ([]string, error) {
+func hintKey(choiceIdx int) string {
+	switch choiceIdx {
+	case 0:
+		return "rock"
+	case 1:
+		return "paper"
+	case 2:
+		return "scissors"
+	default:
+		return ""
+	}
+}
+
+func getHintForChoice(choiceIdx int) string {
+	if hintsMap == nil {
+		return ""
+	}
+	key := hintKey(choiceIdx)
+	list := hintsMap[key]
+	if len(list) == 0 && key == "rock" {
+		list = hintsMap["stone"]
+	}
+	if len(list) == 0 {
+		list = hintsMap[strings.ToLower(names[choiceIdx])]
+	}
+	if len(list) == 0 {
+		return ""
+	}
+	return list[rand.IntN(len(list))]
+}
+
+func loadHints(path string) (map[string][]string, error) {
 	hintFile, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("error opening hints file: %w", err)
 	}
 	defer hintFile.Close()
 
-	var list []string
+	var m map[string][]string
 	decoder := json.NewDecoder(hintFile)
-	if err := decoder.Decode(&list); err != nil {
+	if err := decoder.Decode(&m); err != nil {
 		return nil, fmt.Errorf("error decoding hints JSON: %w", err)
 	}
 
-	return list, nil
+	return m, nil
 }
 
-func getRandomHint() string {
-	if len(hints) == 0 {
-		return ""
-	}
-	return hints[rand.IntN(len(hints))]
+func getCurrentHint() string {
+	choiceMu.Lock()
+	defer choiceMu.Unlock()
+	return currentHint
 }
 
 func randomUser() string {
@@ -176,11 +216,12 @@ func randomUser() string {
 }
 
 type roundEndMsg struct {
-	winner      int
-	results     map[string]pickResult
-	dist        [3]float64
-	total       int
-	leaderboard leaderboard
+	serverChoice int
+	results      map[string]pickResult
+	dist         [3]float64
+	total        int
+	leaderboard  leaderboard
+	hint         string
 }
 
 type tickMsg time.Time
@@ -216,6 +257,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.leaderboard = msg.leaderboard
 		m.dist = msg.dist
 		m.total = msg.total
+		m.hint = msg.hint
 		return m, nil
 
 	case tickMsg:
@@ -248,7 +290,7 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	return model{
 		user:        randomUser(),
 		sessionID:   s.Context().SessionID(),
-		hint:        getRandomHint(),
+		hint:        getCurrentHint(),
 		choice:      rand.IntN(len(names)),
 		renderer:    r,
 		styles:      newStyles(r),
@@ -275,13 +317,14 @@ func programHandler(s ssh.Session) *tea.Program {
 
 func main() {
 	var err error
-	hints, err = loadHints("hints.json")
+	hintsMap, err = loadHints("hints.json")
 	if err != nil {
 		log.Warn("Could not load hints", "error", err)
 	} else {
-		log.Info("Loaded hints", "count", len(hints))
+		log.Info("Loaded hints from hints.json")
 	}
 
+	resetChoices()
 	startRound(roundDuration)
 	go roundLoop()
 
