@@ -29,19 +29,19 @@ ssh rps.bittu.dev -p 2222
 
 ## Controls
 
-- Pick Rock/Paper/Scissors using `tab` or any other key
-- `ctrl+c` quit the game.
+- Pick Rock/Paper/Scissors using `Tab` or any other key.
+- `Ctrl+C` to quit the game.
 
 
 ## Run Locally
 
-clone this git repository locally and run these commands.
-```bass
+Clone this Git repository locally and run these commands:
+```bash
 go run .
 ssh localhost -p 2222
 ```
 
-<sub>configurable via `PORT` · `HOST` · `SSH_HOST_KEY_PATH`</sub>
+<sub>Configurable via `PORT` · `HOST` · `SSH_HOST_KEY_PATH`</sub>
 
 <br>
 
@@ -50,5 +50,3 @@ ssh localhost -p 2222
 [Wish](https://github.com/charmbracelet/wish) · [Bubble Tea](https://github.com/charmbracelet/bubbletea) · [Lip Gloss](https://github.com/charmbracelet/lipgloss)
 
 <br>
-
-</div>
