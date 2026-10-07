@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"math/rand/v2"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -21,6 +24,7 @@ const (
 )
 
 var names = [3]string{"Stone", "Paper", "Scissors"}
+var winner = rand.IntN(len(names))
 
 var (
 	timerMu  sync.Mutex
@@ -45,10 +49,9 @@ func roundLoop() {
 		if timeLeft() <= 0 {
 			picks, dist, total := snapshotChoices()
 
-			winner := rand.IntN(len(names))
-
+			
 			results := scoreRound(winner, picks)
-
+			
 			broadcast(roundEndMsg{
 				winner:      winner,
 				results:     results,
@@ -56,7 +59,7 @@ func roundLoop() {
 				total:       total,
 				leaderboard: getLeaderboard(),
 			})
-
+			
 			startRound(roundDuration)
 			resetChoices()
 		}
@@ -102,6 +105,7 @@ func snapshotChoices() (map[string]pick, [3]float64, int) {
 func resetChoices() {
 	choiceMu.Lock()
 	userChoices = map[string]pick{}
+	winner = rand.IntN(len(names))
 	choiceMu.Unlock()
 }
 
@@ -136,6 +140,31 @@ var WordDict = map[string][]string{
 	},
 }
 
+var hints []string
+
+func loadHints(path string) ([]string, error) {
+	hintFile, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("error opening hints file: %w", err)
+	}
+	defer hintFile.Close()
+
+	var list []string
+	decoder := json.NewDecoder(hintFile)
+	if err := decoder.Decode(&list); err != nil {
+		return nil, fmt.Errorf("error decoding hints JSON: %w", err)
+	}
+
+	return list, nil
+}
+
+func getRandomHint() string {
+	if len(hints) == 0 {
+		return ""
+	}
+	return hints[rand.IntN(len(hints))]
+}
+
 func randomUser() string {
 	adjList := WordDict["adjectives"]
 	nounList := WordDict["nouns"]
@@ -165,6 +194,7 @@ func tickEvery() tea.Cmd {
 type model struct {
 	user        string
 	sessionID   string
+	hint		string
 	choice      int
 	width       int
 	height      int
@@ -218,6 +248,7 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	return model{
 		user:        randomUser(),
 		sessionID:   s.Context().SessionID(),
+		hint:        getRandomHint(),
 		choice:      rand.IntN(len(names)),
 		renderer:    r,
 		styles:      newStyles(r),
@@ -243,6 +274,14 @@ func programHandler(s ssh.Session) *tea.Program {
 }
 
 func main() {
+	var err error
+	hints, err = loadHints("hints.json")
+	if err != nil {
+		log.Warn("Could not load hints", "error", err)
+	} else {
+		log.Info("Loaded hints", "count", len(hints))
+	}
+
 	startRound(roundDuration)
 	go roundLoop()
 

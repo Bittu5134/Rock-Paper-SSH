@@ -1,0 +1,5 @@
+{
+    "rock":["ra","rb","rc","rd"],
+    "paper":["pa","pb","pc","pd"],
+    "scissors":["sa","sb","sc","sd"]
+}

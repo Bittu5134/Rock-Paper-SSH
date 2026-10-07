@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -245,6 +246,7 @@ func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, o pageOpts, conte
 	if o.showSubtitle {
 		parts = append(parts, st.subtitle.Render("SSH battle — beat the board, take their points"))
 	}
+	parts = append(parts, st.help.Render(m.hint))
 	header := lipgloss.JoinVertical(lipgloss.Center, parts...)
 
 	timer := renderTimer(r, st, contentW)
