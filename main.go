@@ -139,6 +139,32 @@ func broadcast(m tea.Msg) {
 
 // roundEndMsg carries the fully scored round — same data delivered to everyone
 // at the same instant.
+
+var WordDict = map[string][]string{
+    "adjectives": {
+        "Cyber", "Shadow", "Neon", "Epic", "Silent", "Cosmic", "Toxic",
+        "Frozen", "Golden", "Iron", "Quantum", "Savage", "Phantom",
+        "Pixel", "Alpha", "Hyper", "Astral", "Chaos", "Dark", "Swift",
+        "Fierce", "Brave", "Rapid", "Stealthy", "Wild", "Electric", "Rogue",
+    },
+    "nouns": {
+        "Viper", "Ninja", "Wolf", "Dragon", "Falcon", "Ghost", "Titan",
+        "Reaper", "Knight", "Panda", "Shark", "Phoenix", "Goblin",
+        "Wizard", "Samurai", "Cobra", "Demon", "Glitch", "Nomad", "Legend",
+        "Stalker", "Hacker", "Valkyrie", "Beast", "Hunter", "Mage", "Spartan",
+    },
+}
+
+func randomUser() string {
+	adjList := WordDict["adjectives"]
+	nounList := WordDict["nouns"]
+
+	randomAdj := adjList[rand.IntN(len(adjList))]
+	randomNoun := nounList[rand.IntN(len(nounList))]
+
+	return randomAdj + randomNoun
+}
+
 type roundEndMsg struct {
 	winner      int                   // the system's winning choice index
 	results     map[string]pickResult // session id -> outcome + points delta
@@ -212,7 +238,7 @@ func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
 	r := bubbletea.MakeRenderer(s) // color profile of THIS client's terminal
 	return model{
-		user:        s.User(),
+		user:        randomUser(),
 		sessionID:   s.Context().SessionID(), // unique per connection
 		choice:      rand.IntN(len(names)),
 		renderer:    r,

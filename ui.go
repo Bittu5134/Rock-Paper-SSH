@@ -154,7 +154,7 @@ func fmtPct(p float64) string {
 
 // renderLeaderboard renders the sorted board, capped to maxRows with a
 // "+k more players" footer when trimmed.
-func renderLeaderboard(r *lipgloss.Renderer, st *uiStyles, board leaderboard, meSessionID string, maxRows int) string {
+func renderLeaderboard(st *uiStyles, board leaderboard, meSessionID string, maxRows int) string {
 	head := st.panelHead.Render(fmt.Sprintf("LEADERBOARD  ·  %d players", len(board)))
 	if len(board) == 0 {
 		return lipgloss.JoinVertical(lipgloss.Left, head, st.label.Render("nobody has points yet"))
@@ -275,7 +275,7 @@ func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, o pageOpts, conte
 	// header
 	parts := []string{st.title.Render("ROCK  ·  PAPER  ·  SCISSORS")}
 	if o.showSubtitle {
-		parts = append(parts, st.subtitle.Render("SSH battle royale — beat the board, take their points"))
+		parts = append(parts, st.subtitle.Render("SSH battle — beat the board, take their points"))
 	}
 	header := lipgloss.JoinVertical(lipgloss.Center, parts...)
 
@@ -298,13 +298,13 @@ func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, o pageOpts, conte
 	case o.hideBoard:
 		body = st.panel.Width(mainW).Render(mainContent)
 	case wide:
-		boardContent := renderLeaderboard(r, st, m.leaderboard, m.sessionID, o.lbRows)
+		boardContent := renderLeaderboard(st, m.leaderboard, m.sessionID, o.lbRows)
 		panelH := max(lipgloss.Height(mainContent), lipgloss.Height(boardContent))
 		mainPanel := st.panel.Width(mainW).Height(panelH).Render(mainContent)
 		boardPanel := st.panel.Width(leaderboardInW + 2).Height(panelH).Render(boardContent)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, strings.Repeat(" ", panelGap), boardPanel)
 	default:
-		boardContent := renderLeaderboard(r, st, m.leaderboard, m.sessionID, o.lbRows)
+		boardContent := renderLeaderboard(st, m.leaderboard, m.sessionID, o.lbRows)
 		mainPanel := st.panel.Width(mainW).Render(mainContent)
 		boardPanel := st.panel.Width(mainW).Render(boardContent)
 		body = lipgloss.JoinVertical(lipgloss.Left, mainPanel, "", boardPanel)
@@ -317,7 +317,7 @@ func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, o pageOpts, conte
 		page = append(page, "", summary)
 	}
 
-	page = append(page, "", st.help.Render("tab to cycle · ctrl+c to quit"))
+	page = append(page, "", st.help.Render("tab to pick · ctrl+c to quit"))
 
 	return lipgloss.JoinVertical(lipgloss.Center, page...)
 }
