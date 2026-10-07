@@ -6,33 +6,41 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Tiny terminal-native designs: four rows tall, no image files or protocols.
-// The ASCII/box-drawing shapes stay recognizable in color and monochrome.
+// designs.go — the three choice icons. Tiny terminal-native art: four rows
+// tall, drawn with unambiguous single-width box-drawing characters, colored
+// in each choice's vibrant palette color (see ui.go).
+
 var choiceDesigns = [3][4]string{
-	{" /-\\ ", "/###\\", "|###|", " \\_/ "},
-	{"┌───┐", "│≡≡≡│", "│≡≡≡│", "└───┘"},
-	{"╲   ╱", " ╲ ╱ ", "  X  ", " o o "},
+	{" /-\\ ", "/###\\", "|###|", " \\_/ "}, // stone
+	{"┌───┐", "│≡≡≡│", "│≡≡≡│", "└───┘"},    // paper
+	{"╲   ╱", " ╲ ╱ ", "  X  ", " o o "},    // scissors
 }
 
-var choiceColors = [3]lipgloss.TerminalColor{
-	lipgloss.Color("#A8A29E"), // stone gray
-	lipgloss.Color("#FDE68A"), // paper cream
-	lipgloss.Color("#7DD3FC"), // shears steel blue
-}
-
-// renderChoices styles compact designs using the connected client's color
-// profile, highlights the selected option, and lays the three choices in a row.
+// renderChoices styles the designs with the session renderer and lays the
+// three choices in a row. Every block gets the same width so the icon
+// columns and labels stay aligned.
 func renderChoices(r *lipgloss.Renderer, selected int) string {
+	// widest icon row or name, plus a little breathing room
+	inner := 0
+	for i, design := range choiceDesigns {
+		for _, row := range design {
+			inner = max(inner, lipgloss.Width(row))
+		}
+		inner = max(inner, lipgloss.Width(names[i]))
+	}
+	inner += 2
+
 	blocks := make([]string, len(names))
 	for i, design := range choiceDesigns {
-		icon := r.NewStyle().Foreground(choiceColors[i]).Render(strings.Join(design[:], "\n"))
-		labelStyle := r.NewStyle().Foreground(choiceColors[i]).Bold(i == selected)
+		col := choiceColor(i)
+		icon := r.NewStyle().Foreground(col).Render(strings.Join(design[:], "\n"))
+
+		labelStyle := r.NewStyle().Foreground(col)
 		if i == selected {
-			labelStyle = labelStyle.Underline(true)
+			labelStyle = labelStyle.Bold(true).Underline(true)
 		}
-		label := labelStyle.Render(names[i])
-		block := lipgloss.JoinVertical(lipgloss.Center, icon, label)
-		blocks[i] = lipgloss.NewStyle().Width(9).Align(lipgloss.Center).Padding(0, 1).Render(block)
+		block := lipgloss.JoinVertical(lipgloss.Center, icon, labelStyle.Render(names[i]))
+		blocks[i] = r.NewStyle().Width(inner).Align(lipgloss.Center).Padding(0, 1).Render(block)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, blocks...)
 }
