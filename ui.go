@@ -25,14 +25,14 @@ const (
 )
 
 const (
-	minTermW = 76
-	minTermH = 24
+	minTermW = 84
+	minTermH = 26
 
 	frameMargin    = 4
-	maxContentW    = 90
-	minContentW    = 50
+	maxContentW    = 96
+	minContentW    = 60
 	wideBreakpoint = 88
-	leaderboardInW = 26
+	leaderboardInW = 34
 	panelGap       = 2
 	minShareBarW   = 20
 	maxShareBarW   = 60
@@ -277,12 +277,12 @@ func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, contentW int) str
 
 	panelH := max(lipgloss.Height(mainContent), lipgloss.Height(boardContent))
 	mainPanel := st.panel.Width(mainW).Height(panelH).Render(mainContent)
-	boardPanel := st.panel.Width(leaderboardInW + 2).Height(panelH).Render(boardContent)
+	boardPanel := st.panel.Width(leaderboardInW).Height(panelH).Render(boardContent)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, strings.Repeat(" ", panelGap), boardPanel)
 
 	summary := st.panel.Width(contentW - 2).Render(renderRoundSummary(r, st, m.lastRound, m.sessionID))
 
-	page := []string{header, "", timer, body, summary}
+	page := []string{header, "", timer, "", body, "", summary}
 
 	return lipgloss.JoinVertical(lipgloss.Center, page...)
 }

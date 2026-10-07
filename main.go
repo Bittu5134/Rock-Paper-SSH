@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	port          = "2222"
+	defaultPort   = "2222"
 	roundDuration = 10 * time.Second
 )
 
@@ -331,15 +331,28 @@ func main() {
 	startRound(roundDuration)
 	go roundLoop()
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = defaultPort
+	}
+	host := os.Getenv("HOST")
+
+	hostKeyPath := os.Getenv("SSH_HOST_KEY_PATH")
+	if hostKeyPath == "" {
+		hostKeyPath = ".ssh/rps_ed25519"
+	}
+
+	_ = os.MkdirAll(".ssh", 0700)
+
 	s, err := wish.NewServer(
-		wish.WithAddress(net.JoinHostPort("localhost", port)),
-		wish.WithHostKeyPath(".ssh/id_ed25519"),
+		wish.WithAddress(net.JoinHostPort(host, port)),
+		wish.WithHostKeyPath(hostKeyPath),
 		wish.WithMiddleware(bubbletea.MiddlewareWithProgramHandler(programHandler, termenv.Ascii)),
 	)
 	if err != nil {
 		log.Fatal("Could not start server", "error", err)
 	}
 
-	log.Info("Starting SSH server", "port", port)
+	log.Info("Starting SSH server", "host", host, "port", port)
 	log.Fatal(s.ListenAndServe())
 }

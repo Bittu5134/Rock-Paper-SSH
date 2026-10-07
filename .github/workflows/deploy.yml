@@ -1,0 +1,49 @@
+name: Deploy Rock-Paper-SSH
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build and Deploy to Hack Club Nest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Build Binary (Linux AMD64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o rock-paper-ssh .
+
+      - name: Deploy files via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: "rock-paper-ssh,hints.json"
+          target: "~/rock-paper-ssh/"
+          overwrite: true
+
+      - name: Restart Service via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            mkdir -p ~/rock-paper-ssh
+            chmod +x ~/rock-paper-ssh/rock-paper-ssh
+            systemctl --user restart rock-paper-ssh || echo "Service not yet started or created"
+            systemctl --user status rock-paper-ssh --no-pager || true

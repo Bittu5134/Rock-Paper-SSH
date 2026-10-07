@@ -19,14 +19,14 @@ func TestRenderFullPage(t *testing.T) {
 		renderer:    r,
 		styles:      st,
 		leaderboard: leaderboard{{user: "Alice", points: 10, sessionID: "s1"}},
-		width:       80,
-		height:      24,
+		width:       88,
+		height:      26,
 	}
 
-	// 1. Initial state (waiting for first round) on standard 80x24
+	// 1. Initial state (waiting for first round) on standard 88x26
 	out := renderFullPage(m)
 	if strings.Contains(out, "TERMINAL TOO SMALL") {
-		t.Fatalf("80x24 should not show TERMINAL TOO SMALL, got:\n%s", out)
+		t.Fatalf("88x26 should not show TERMINAL TOO SMALL, got:\n%s", out)
 	}
 	if !strings.Contains(out, "PICKS ACROSS THE BOARD") {
 		t.Errorf("expected PICKS ACROSS THE BOARD box to always be on screen")
@@ -38,7 +38,7 @@ func TestRenderFullPage(t *testing.T) {
 		t.Errorf("expected LAST ROUND box to always be on screen")
 	}
 
-	// 2. Populated roundEndMsg on 80x24
+	// 2. Populated roundEndMsg on 88x26
 	m.lastRound = &roundEndMsg{
 		serverChoice: 1,
 		results: map[string]pickResult{
@@ -48,7 +48,7 @@ func TestRenderFullPage(t *testing.T) {
 	}
 	outWithRound := renderFullPage(m)
 	if strings.Contains(outWithRound, "TERMINAL TOO SMALL") {
-		t.Fatalf("80x24 with round results should not show TERMINAL TOO SMALL, got:\n%s", outWithRound)
+		t.Fatalf("88x26 with round results should not show TERMINAL TOO SMALL, got:\n%s", outWithRound)
 	}
 	if !strings.Contains(outWithRound, "PICKS ACROSS THE BOARD") {
 		t.Errorf("expected PICKS ACROSS THE BOARD box")
@@ -62,8 +62,8 @@ func TestRenderFullPage(t *testing.T) {
 
 	// 3. Small screen size warning check
 	smallSizes := [][2]int{
-		{60, 24}, // too narrow
-		{80, 20}, // too short
+		{70, 26}, // too narrow
+		{88, 20}, // too short
 		{50, 15}, // both
 	}
 	for _, sz := range smallSizes {
