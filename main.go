@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net"
 	"strings"
 
@@ -15,16 +14,9 @@ import (
 
 const port = "2222"
 
-const (
-	phaseAskName = iota
-	phaseApp
-)
-
 type model struct {
-	user  string
-	count int
-	phase int
-	input textinput.Model
+	messages []string
+	input    textinput.Model
 }
 
 func (m model) Init() tea.Cmd { return textinput.Blink }
@@ -34,59 +26,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
-		case "q":
-			if m.phase == phaseApp {
-				return m, tea.Quit
-			}
-		case "esc":
-			if m.phase == phaseApp {
-				m.phase = phaseAskName
-				return m, nil
-			}
 		case "enter":
-			if m.phase == phaseAskName {
-				name := strings.TrimSpace(m.input.Value())
-				if name == "" {
-					return m, nil
-				}
-				m.user = name
+			text := strings.TrimSpace(m.input.Value())
+			if text != "" {
+				m.messages = append(m.messages, text)
 				m.input.SetValue("")
-				m.phase = phaseApp
-				return m, nil
 			}
-		case "up", "k":
-			if m.phase == phaseApp {
-				m.count++
-				return m, nil
-			}
-		case "down", "j":
-			if m.phase == phaseApp {
-				m.count--
-				return m, nil
-			}
+			return m, nil
 		}
 	}
-	// everything else (typing, cursor, paste) goes to the text input
+
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
 }
 
 func (m model) View() string {
-	if m.phase == phaseAskName {
-		return "What's your name?\n\n" + m.input.View() + "\n\n(enter to confirm, ctrl+c to quit)\n"
+	s := ""
+	for _, msg := range m.messages {
+		s += msg + "\n"
 	}
-	return fmt.Sprintf("Hello, %s!\n\nCount: %d\n\n(Use up/down or j/k, q to quit, esc to change name)\n", m.user, m.count)
+	return s + "> " + m.input.View() + "\n\n(enter to submit, ctrl+c to quit)\n"
 }
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
 	ti := textinput.New()
-	ti.Placeholder = "type your name…"
+	ti.Placeholder = "type here…"
 	ti.Focus()
-	ti.CharLimit = 24
-	ti.Width = 30
-	return model{user: s.User(), phase: phaseAskName, input: ti}, []tea.ProgramOption{tea.WithAltScreen()}
+	ti.CharLimit = 50
+	ti.Width = 40
+	return model{input: ti}, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
 func main() {
