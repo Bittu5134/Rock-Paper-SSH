@@ -3,7 +3,7 @@
 # Rock · Paper · SSH
 
 **A PvE multiplayer rock-paper-scissors arena that's played entirely over SSH.**  
-*No client. No install. No account. Just connect. And play.*
+*No client. No install. No account. Just connect. And play. [Read more...](https://bittu.dev/blog/rock-paper-ssh/)*
 
 ```yaml
 ssh rps.bittu.dev -p 2222
