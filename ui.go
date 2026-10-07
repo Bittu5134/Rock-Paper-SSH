@@ -109,7 +109,9 @@ func renderTimer(r *lipgloss.Renderer, st *uiStyles, contentW int) string {
 }
 
 func renderShareBar(r *lipgloss.Renderer, st *uiStyles, dist [3]float64, total int, width int) string {
-	head := st.panelHead.Render("PICKS ACROSS THE BOARD")
+	headTitle := r.NewStyle().Bold(true).Foreground(lipgloss.Color(colAccent)).Render("PICKS ACROSS THE BOARD")
+	headHint := st.help.Render("(tab to cycle)")
+	head := r.NewStyle().MarginBottom(1).Render(headTitle + " " + headHint)
 	if total == 0 || width < 10 {
 		return lipgloss.JoinVertical(lipgloss.Left, head, st.label.Render("no picks yet — waiting for players"))
 	}
@@ -246,7 +248,7 @@ func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, o pageOpts, conte
 	if o.showSubtitle {
 		parts = append(parts, st.subtitle.Render("SSH battle — beat the board, take their points"))
 	}
-	parts = append(parts, st.help.Render(m.hint))
+	parts = append(parts, st.help.Render("HINT: " + m.hint))
 	header := lipgloss.JoinVertical(lipgloss.Center, parts...)
 
 	timer := renderTimer(r, st, contentW)
@@ -283,8 +285,6 @@ func assemblePage(r *lipgloss.Renderer, st *uiStyles, m model, o pageOpts, conte
 		summary := st.panel.Width(contentW - 2).Render(renderRoundSummary(r, st, m.lastRound, m.sessionID))
 		page = append(page, "", summary)
 	}
-
-	page = append(page, "", st.help.Render("tab to pick · ctrl+c to quit"))
 
 	return lipgloss.JoinVertical(lipgloss.Center, page...)
 }
