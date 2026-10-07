@@ -274,6 +274,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab":
 			m.choice = (m.choice + 1) % len(names)
 			return m, nil
+		default:
+			m.choice = (m.choice + 1) % len(names)
+			return m, nil
 		}
 	}
 	return m, nil
