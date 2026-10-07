@@ -1,3 +1,4 @@
+// Rock-Paper-SSH: a rock-paper-scissors game served over SSH.
 package main
 
 import (
@@ -15,10 +16,23 @@ import (
 	"github.com/muesli/termenv"
 )
 
-const port = "2222"
+const (
+	port          = "2222"
+	roundDuration = 30 * time.Second
+)
 
-var timerMu sync.Mutex
-var roundEnd time.Time
+var choices = [3]string{"🪨", "📄", "✂️ "}
+
+var helpStyle = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("240")).
+	MarginTop(1)
+
+// --- global round timer -----------------------------------------------------
+
+var (
+	timerMu  sync.Mutex
+	roundEnd time.Time
+)
 
 func startRound(d time.Duration) {
 	timerMu.Lock()
@@ -32,10 +46,20 @@ func timeLeft() time.Duration {
 	return time.Until(roundEnd)
 }
 
-func roundOver() bool {
-	return timeLeft() <= 0
+// roundLoop ends the round for everyone exactly once, then starts the next.
+func roundLoop() {
+	for {
+		time.Sleep(200 * time.Millisecond)
+		if timeLeft() <= 0 {
+			broadcast(roundEndMsg{})
+			startRound(roundDuration)
+		}
+	}
 }
 
+// --- broadcast fan-out ------------------------------------------------------
+
+// one channel per connected session
 var (
 	subMu sync.Mutex
 	subs  = map[chan tea.Msg]struct{}{}
@@ -47,22 +71,12 @@ func broadcast(m tea.Msg) {
 	for ch := range subs {
 		select {
 		case ch <- m:
-		default:
+		default: // drop for sessions that aren't reading fast enough
 		}
 	}
 }
 
-func roundLoop() {
-	for {
-		time.Sleep(200 * time.Millisecond)
-		if roundOver() {
-			broadcast(roundEndMsg{})
-			startRound(roundDuration)
-		}
-	}
-}
-
-const roundDuration = 30 * time.Second
+// --- bubbletea UI -----------------------------------------------------------
 
 type roundEndMsg struct{}
 
@@ -78,9 +92,7 @@ type model struct {
 	choice int
 }
 
-func (m model) Init() tea.Cmd {
-	return tickEvery()
-}
+func (m model) Init() tea.Cmd { return tickEvery() }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -96,18 +108,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			m.choice = (m.choice + 1) % 3
+			m.choice = (m.choice + 1) % len(choices)
 			return m, nil
 		}
 	}
 	return m, nil
 }
-
-var choices = [3]string{"🪨 Rock", "📄 Paper", "✂️  Scissors"}
-
-var helpStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("240")).
-	MarginTop(1)
 
 func (m model) View() string {
 	s := fmt.Sprintf("⏳ %ds left in round\n\n", int(timeLeft().Seconds())+1)
@@ -115,9 +121,11 @@ func (m model) View() string {
 	return s + helpStyle.Render("tab to choose · ctrl+c to quit") + "\n"
 }
 
+// --- ssh wiring ---------------------------------------------------------------
+
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
-	return model{choice: 0}, []tea.ProgramOption{tea.WithAltScreen()}
+	return model{}, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
 // programHandler builds each session's program and subscribes it to broadcasts.
@@ -132,15 +140,15 @@ func programHandler(s ssh.Session) *tea.Program {
 
 	go func() {
 		for msg := range ch {
-			p.Send(msg) // arrives in that session's Update
+			p.Send(msg)
 		}
 	}()
 	return p
 }
 
 func main() {
-	startRound(roundDuration) // global round starts when the server starts
-	go roundLoop()            // server watches the clock and broadcasts expiry
+	startRound(roundDuration)
+	go roundLoop()
 
 	s, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort("localhost", port)),
