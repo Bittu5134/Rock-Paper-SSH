@@ -8,6 +8,8 @@
 ```yaml
 ssh rps.bittu.dev -p 2222
 ```
+
+<sub>IPv6-only host — works from most mobile networks & modern ISPs; some home Wi-Fi can't reach it</sub>
 <br>
 
 <img src="screenshots/game.png" width="850" alt="Rock Paper SSH gameplay" />
