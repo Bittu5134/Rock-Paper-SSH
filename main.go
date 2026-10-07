@@ -22,7 +22,7 @@ const (
 	roundDuration = 3 * time.Second
 )
 
-var choices = [3]string{"🪨", "📄", "✂️ "}
+var names = [3]string{"Stone", "Paper", "Scissors"}
 
 var helpStyle = lipgloss.NewStyle().
 	Foreground(lipgloss.Color("240")).
@@ -55,7 +55,7 @@ func roundLoop() {
 			picks, dist, total := snapshotChoices()
 
 			// The system's winning choice — random index, different every round.
-			winner := rand.IntN(len(choices))
+			winner := rand.IntN(len(names))
 
 			broadcast(roundEndMsg{
 				winner: winner, // arbitrary data: the system's winning index
@@ -162,6 +162,7 @@ type model struct {
 	picks     map[string]pick
 	dist      [3]float64
 	total     int
+	renderer  *lipgloss.Renderer // uses this SSH client's color capabilities
 }
 
 func (m model) Init() tea.Cmd { return tickEvery() }
@@ -183,7 +184,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			m.choice = (m.choice + 1) % len(choices)
+			m.choice = (m.choice + 1) % len(names)
 			return m, nil
 		}
 	}
@@ -192,14 +193,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	s := fmt.Sprintf("⏳ %ds left in round\n\n", int(timeLeft().Seconds())+1)
-	s += fmt.Sprintf("Your current choice is, %s\n", choices[m.choice])
+	s += renderChoices(m.renderer, m.choice)
+	s += fmt.Sprintf("Your current choice is, %s\n", names[m.choice])
 	lockChoice(m.sessionID, m.user, m.choice)
 	if m.picks != nil {
-		s += fmt.Sprintf("\nROUND ENDED — system picked %s as the winner\n", choices[m.winner])
+		s += fmt.Sprintf("\nROUND ENDED — system picked %s as the winner\n", names[m.winner])
 
 		s += fmt.Sprintf("\nWhat users picked (%d pickers):\n", m.total)
 		for i, pct := range m.dist {
-			s += fmt.Sprintf("  %s : %5.1f%%\n", choices[i], pct)
+			s += fmt.Sprintf("  %s : %5.1f%%\n", names[i], pct)
 		}
 
 		s += "\nThis round's picks:\n"
@@ -208,7 +210,7 @@ func (m model) View() string {
 			if p.idx == m.winner {
 				verdict = " 🎉"
 			}
-			s += fmt.Sprintf("  %s chose %s%s\n", p.user, choices[p.idx], verdict)
+			s += fmt.Sprintf("  %s chose %s%s\n", p.user, names[p.idx], verdict)
 		}
 	}
 	return s + helpStyle.Render("tab to choose · ctrl+c to quit") + "\n"
@@ -218,10 +220,12 @@ func (m model) View() string {
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	log.Info(s.User())
+	r := bubbletea.MakeRenderer(s) // color profile of THIS client's terminal
 	return model{
 		user:      s.User(),
 		sessionID: s.Context().SessionID(), // unique per connection
-		choice:    rand.IntN(len(choices)),
+		choice:    rand.IntN(len(names)),
+		renderer:  r,
 	}, []tea.ProgramOption{tea.WithAltScreen()}
 }
 
